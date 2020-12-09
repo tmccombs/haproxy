@@ -1,0 +1,118 @@
+vtest "Test for peering by server address"
+feature ignore_unknown_macro
+
+#REQUIRE_VERSION=2.0
+#REGTEST_TYPE=slow
+
+server s1 {
+  rxreq
+  txresp -body "A"
+} -repeat 3 -start
+
+server s2 {
+  rxreq
+  txresp -body "B"
+} -repeat 3 -start
+
+server s3 {
+  rxreq
+  txresp -body "C"
+} -repeat 3 -start
+
+haproxy h1 -arg "-L A" -conf {
+  defaults
+    mode http
+    timeout client  1s
+    timeout connect 1s
+    timeout server  1s
+
+  peers peers
+    bind "fd@${A}"
+    server A
+    server B ${h2_B_addr}:${h2_B_port}
+
+  listen stkt
+    bind "fd@${fe}"
+    balance roundrobin
+    stick-table type string size 10m store gpc0 srvkey addr peers peers
+    stick on path
+    http-request track-sc0 path
+    http-request sc-inc-gpc0(0)
+    server s1_A ${s1_addr}:${s1_port}
+    server s2_A ${s2_addr}:${s2_port}
+    server s3_A ${s3_addr}:${s3_port}
+}
+
+haproxy h2 -arg "-L B" -conf {
+  defaults
+    mode http
+    timeout client  1s
+    timeout connect 1s
+    timeout server  1s
+
+  peers peers
+    bind "fd@${B}"
+    server A ${h1_A_addr}:${h1_A_port}
+    server B
+    server C ${h2_C_addr}:${h2_C_port}
+
+  listen stkt
+    bind "fd@${fe}"
+    balance random
+    stick-table type string size 10m store gpc0 srvkey addr peers peers
+    stick on path
+    http-request track-sc0 path
+    http-request sc-inc-gpc0(0)
+    server s2_B ${s2_addr}:${s2_port}
+    server s3_B ${s3_addr}:${s3_port}
+    server s1_B ${s1_addr}:${s1_port}
+}
+
+haproxy h3 -arg "-L C" -conf {
+  defaults
+    mode http
+    timeout client  1s
+    timeout connect 1s
+    timeout server  1s
+
+  peers peers
+    bind "fd@${C}"
+    server A ${h1_A_addr}:${h1_A_port}
+    server B ${h2_B_addr}:${h2_B_port}
+    server C
+
+  listen stkt
+    bind "fd@${fe}"
+    balance random
+    stick-table type string size 10m store gpc0 srvkey addr peers peers
+    stick on path
+    server s3_C ${s3_addr}:${s3_port}
+    server s1_C ${s1_addr}:${s1_port}
+    server s2_C ${s2_addr}:${s2_port}
+}
+
+haproxy h1 -start
+delay 0.2
+haproxy h2 -start
+delay 0.2
+haproxy h3 -start
+delay 0.2
+
+shell {
+  set -e
+  c1=`curl -sS ${h1_fe_addr}:${h1_fe_port}/c1`
+  c2=`curl -sS ${h1_fe_addr}:${h1_fe_port}/c2`
+  c3=`curl -sS ${h1_fe_addr}:${h1_fe_port}/c3`
+
+  echo $c1 $c2 $c3
+
+  sleep 1
+
+  [ "`curl -sS ${h2_fe_addr}:${h2_fe_port}/c1`" = "$c1" ] || exit 1
+  [ "`curl -sS ${h2_fe_addr}:${h2_fe_port}/c2`" = "$c2" ] || exit 1
+  [ "`curl -sS ${h2_fe_addr}:${h2_fe_port}/c3`" = "$c3" ] || exit 1
+
+  [ "`curl -sS ${h3_fe_addr}:${h3_fe_port}/c1`" = "$c1" ] || exit 1
+  [ "`curl -sS ${h3_fe_addr}:${h3_fe_port}/c2`" = "$c2" ] || exit 1
+  [ "`curl -sS ${h3_fe_addr}:${h3_fe_port}/c3`" = "$c3" ] || exit 1
+}
