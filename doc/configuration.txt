@@ -16238,6 +16238,28 @@ protobuf(<field_number>,[<field_type>])
   More information may be found here about the protocol buffers message field types:
   https://developers.google.com/protocol-buffers/docs/encoding
 
+regmatch(<regex>[,<index>[,<flags>]])
+  This extracts a substring that matches the regex pattern. It will return the first
+  match in the input string. By default it returns the entire match, but if <index>
+  is supplied, then the capture group for that number will be returned instead. A
+  value of 0 returns the entire match. The regex can be made case insensitive by
+  adding the flag "i" in <flags>.
+
+  It is highly recommended to enclose the regex part using protected quotes to
+  improve clarity and never have a closing parenthesis from the regex mixed up with
+  the parenthesis from the function. Just like in Bourne shell, the first level of
+  quotes is processed when delimiting word groups on the line, a second level is
+  usable for argument. It is recommended to use single quotes outside since these
+  ones do not try to resolve backslashes nor dollar signs.
+
+  Examples:
+
+     # extract part of content-type
+     http-request set-var(txn.imtype) 'hdr(content-type),regmatch("image/(.*)",1)'
+
+     # extract cookie with certain pattern
+     http-request set-header x-test-cookie %[hdr(cookie),'regmatch(test-\w+=\d+)']
+
 regsub(<regex>,<subst>[,<flags>])
   Applies a regex-based substitution to the input string. It does the same
   operation as the well-known "sed" utility with "s/<regex>/<subst>/". By

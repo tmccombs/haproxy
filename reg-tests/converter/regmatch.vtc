@@ -1,0 +1,39 @@
+varnishtest "regmatch converter Test"
+
+feature ignore_unknown_macro
+
+server s1 {
+	rxreq
+	txresp
+} -repeat 3 -start
+
+haproxy h1 -conf {
+	defaults
+	mode http
+	timeout connect 1s
+	timeout client 1s
+	timeout server 1s
+
+	frontend fe
+	bind "fd@${fe}"
+
+	#### requests
+	http-request set-var(txn.match) "path,regmatch('test/(\d+)/',1)"
+	http-response set-header Found %[var(txn.match)] if { var(txn.match) -m found }
+
+	default_backend be
+
+	backend be
+	server s1 ${s1_addr}:${s1_port}
+} -start
+
+client c1 -connect ${h1_fe_sock} {
+	txreq -url "/test/123/456"
+	rxresp
+	expect resp.status == 200
+	expect resp.http.found == "123"
+	txreq -url "/foo"
+	rxresp
+	expect resp.status == 200
+	expect resp.http.found == "<undef>"
+} -run

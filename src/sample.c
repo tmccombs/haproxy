@@ -2671,6 +2671,71 @@ found:
 	return 1;
 }
 
+static int sample_conv_regmatch_check(struct arg *args, struct sample_conv *conv,
+                                      const char *file, int line, char **err)
+{
+	struct arg *arg = args;
+	char *p;
+	int len;
+
+	if (arg[1].type == ARGT_SINT && (arg[1].data.sint < 0 || arg[1].data.sint > MAX_MATCH)) {
+		memprintf(err, "invalid capture group number %lld. must be between 0 and %d", arg[1].data.sint, MAX_MATCH);
+		return 0;
+	}
+
+	/* arg0 is a regex, it uses type_flag for ICASE */
+	arg[0].type_flags = 0;
+
+	if (arg[2].type != ARGT_STR)
+		return 1;
+
+	p = arg[2].data.str.area;
+	len = arg[2].data.str.data;
+	while (len) {
+		if (*p == 'i') {
+			arg[0].type_flags |= ARGF_REG_ICASE;
+		}
+		else {
+			memprintf(err, "invalid regex flag '%c', only 'i' is supported", *p);
+			return 0;
+		}
+		p++;
+		len--;
+	}
+	return 1;
+}
+
+/* This sample function is designed to find the first match of a regex in the input string.
+ * If arg1 is supplied, that is used as the capture group to return (or the whole match if 0).
+ */
+static int sample_conv_regmatch(const struct arg *arg_p, struct sample *smp, void *private)
+{
+	struct my_regex *reg = arg_p[0].data.reg;
+	regmatch_t pmatch[MAX_MATCH];
+	regmatch_t capture;
+	int nmatch = (arg_p[1].type == ARGT_SINT) ? arg_p[1].data.sint : 0;
+	int found;
+
+	found = regex_exec_match2(reg, smp->data.u.str.area, smp->data.u.str.data, MAX_MATCH, pmatch, 0);
+	/* Error if no match is found */
+	if (!found) {
+		smp->data.u.str.data = 0;
+		return 0;
+	}
+	capture = pmatch[nmatch];
+	smp->data.u.str.data = capture.rm_eo - capture.rm_so;
+	/* If ret string is len 0, no need to change pointers or update size */
+	if (!smp->data.u.str.data)
+		return 1;
+
+	smp->data.u.str.area += capture.rm_so;
+	/* adjust size if necessary */
+	if (smp->data.u.str.size)
+		smp->data.u.str.size -= capture.rm_so;
+
+	return 1;
+}
+
 static int sample_conv_regsub_check(struct arg *args, struct sample_conv *conv,
                                     const char *file, int line, char **err)
 {
@@ -4116,6 +4181,7 @@ static struct sample_conv_kw_list sample_conv_kws = {ILH, {
 	{ "bytes",  sample_conv_bytes,     ARG2(1,SINT,SINT), NULL, SMP_T_BIN,  SMP_T_BIN },
 	{ "field",  sample_conv_field,     ARG3(2,SINT,STR,SINT), sample_conv_field_check, SMP_T_STR,  SMP_T_STR },
 	{ "word",   sample_conv_word,      ARG3(2,SINT,STR,SINT), sample_conv_field_check, SMP_T_STR,  SMP_T_STR },
+	{ "regmatch", sample_conv_regmatch, ARG3(1,REG,SINT,STR), sample_conv_regmatch_check, SMP_T_STR, SMP_T_STR },
 	{ "regsub", sample_conv_regsub,    ARG3(2,REG,STR,STR), sample_conv_regsub_check, SMP_T_STR, SMP_T_STR },
 	{ "sha1",   sample_conv_sha1,      0,            NULL, SMP_T_BIN,  SMP_T_BIN  },
 #ifdef USE_OPENSSL
